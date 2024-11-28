@@ -1,4 +1,4 @@
-# Drawdle
+# drawdle
 
 An interactive web application that generates and animates SVG drawings using AI. Simply describe what you want to draw and watch it come to life with smooth line-drawing animations.
 
