@@ -64,14 +64,6 @@
       opacity: 0.5;
       cursor: not-allowed;
     }
-    #error {
-      color: #dc3545;
-      margin-bottom: 15px;
-      padding: 10px;
-      border-radius: 4px;
-      background-color: #ffe6e6;
-      border: 1px solid #dc3545;
-    }
     #svgContainer {
       border: 1px solid #eee;
       border-radius: 4px;
@@ -84,7 +76,7 @@
     }
     @keyframes drawLine {
       from {
-        stroke-dashoffset: var(--length, 1000);
+        stroke-dashoffset: var(--length);
       }
       to {
         stroke-dashoffset: 0;
@@ -93,7 +85,9 @@
     .svg-container svg {
       max-width: 100%;
       height: auto;
-      overflow: visible;
+      border: 1px solid #eee;
+      border-radius: 4px;
+      background: white;
     }
     .svg-container svg path,
     .svg-container svg line,
@@ -104,109 +98,172 @@
       stroke-linejoin: round;
       fill: none; /* Ensure no fill for better visibility of animation */
     }
+    .chat-container {
+      display: flex;
+      margin-top: 15px;
+    }
+    #chatInput {
+      flex: 1;
+      font-size: 14px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    #sendButton {
+      padding: 10px 15px;
+      margin-left: 10px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+      background-color: #007BFF;
+      color: #fff;
+    }
+    #sendButton:hover {
+      background-color: #0056b3;
+    }
+    #loadingIndicator {
+      text-align: center;
+      margin-top: 15px;
+      font-style: italic;
+      color: #6c757d;
+    }
   </style>
 </head>
 <body>
 
   <div class="container">
     <h1>SVG Drawing Animator</h1>
-    <textarea id="svgInput"><svg viewBox="0 0 200 200">
-  <path d="M50,50 L150,50 L150,150 L50,150 Z" fill="none" stroke="black" stroke-width="2"/>
-  <path d="M70,100 L130,100" fill="none" stroke="black" stroke-width="2"/>
-  <path d="M100,70 L100,130" fill="none" stroke="black" stroke-width="2"/>
-</svg></textarea>
-    <div class="buttons">
-      <button id="animateButton">Animate Drawing</button>
+    <div id="svgContainer" class="svg-container"></div>
+    <div class="chat-container">
+      <input type="text" id="chatInput" placeholder="Describe something to draw..." autofocus />
+      <button id="sendButton">Send</button>
       <button id="resetButton">Reset</button>
     </div>
-    <div id="error"></div>
-    <div id="svgContainer" class="svg-container"></div>
   </div>
 
   <script>
-    const svgInputElement = document.getElementById('svgInput');
-    const animateButton = document.getElementById('animateButton');
-    const resetButton = document.getElementById('resetButton');
-    const errorElement = document.getElementById('error');
     const svgContainer = document.getElementById('svgContainer');
-
+    const chatInput = document.getElementById('chatInput');
+    const sendButton = document.getElementById('sendButton');
+    const resetButton = document.getElementById('resetButton');
+    let socket = null;
+    let svg = null;
+    let pathQueue = [];
     let isAnimating = false;
 
-    function processSVG(input) {
-      try {
-        errorElement.textContent = '';
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(input, 'image/svg+xml');
+    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("width", "600");
+    svg.setAttribute("height", "400");
+    svg.setAttribute("viewBox", "0 0 600 400");
+    svg.style.border = "1px solid #ccc";
+    svg.style.width = "600px";
+    svg.style.height = "400px";
+    svgContainer.appendChild(svg);
 
-        const parserError = doc.querySelector('parsererror');
-        if (parserError) {
-          throw new Error('Invalid SVG format');
-        }
-
-        const elements = doc.querySelectorAll('path, line, rect, circle, ellipse');
-        if (elements.length === 0) {
-          throw new Error('No drawable elements found in SVG');
-        }
-
-        elements.forEach((elem, index) => {
-          let length = 1000; // default length for shapes without getTotalLength
-          
-          // Create a temporary clone to measure length
-          const clone = elem.cloneNode(true);
-          const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-          svg.appendChild(clone);
-          document.body.appendChild(svg);
-          
-          if (clone.getTotalLength) {
-            try {
-              length = clone.getTotalLength();
-            } catch (e) {
-              console.warn('Could not get element length, using default');
-            }
-          }
-          
-          document.body.removeChild(svg);
-
-          elem.setAttribute('style', `
-            stroke-dasharray: ${length};
-            stroke-dashoffset: ${length};
-            animation: drawLine ${1 + index * 0.5}s ease forwards;
-            animation-delay: ${index * 0.2}s;
-          `);
-        });
-
-        return new XMLSerializer().serializeToString(doc.documentElement);
-      } catch (error) {
-        errorElement.textContent = error.message;
-        console.error('Error processing SVG:', error);
-        return null;
-      }
-    }
-
-    function handleAnimate() {
-      if (isAnimating) return;
-      const input = svgInputElement.value.trim();
-      if (!input) {
-        errorElement.textContent = 'Please enter SVG code.';
+    function processQueue() {
+      if (pathQueue.length === 0) {
+        isAnimating = false;
         return;
       }
-      const processed = processSVG(input);
-      if (processed) {
-        svgContainer.innerHTML = processed;
-        isAnimating = true;
-        animateButton.disabled = true;
+      isAnimating = true;
+      const { path, index } = pathQueue.shift();
+      animatePath(path, index).then(() => {
+        processQueue();
+      });
+    }
+
+    function animatePath(path, index) {
+      return new Promise((resolve) => {
+        if (path.getAttribute('data-animated') === 'true') {
+          resolve();
+          return;
+        }
+        path.setAttribute('data-animated', 'true');
+        
+        let length = 10;
+        if (path.getTotalLength) {
+          try {
+            length = path.getTotalLength();
+          } catch (e) {
+            console.warn('Could not get path length, using default');
+          }
+        }
+        console.log('Animating path with length:', length);
+
+        path.style.setProperty('--length', length);
+        path.style.strokeDasharray = length;
+        path.style.strokeDashoffset = length;
+
+        path.style.animation = `drawLine 0.5s ease forwards`;
+        path.style.animationDelay = `0s`;
+
+        path.addEventListener('animationend', () => {
+          resolve();
+        }, { once: true });
+      });
+    }
+
+    function sendMessage() {
+      const message = chatInput.value.trim();
+      if (!message || socket) {
+        console.log('Message rejected:', !message ? 'empty message' : 'socket busy');
+        return;
       }
+      console.log('Initiating new drawing request:', message);
+      sendButton.disabled = true;
+      sendButton.textContent = 'Sending...';
+
+      socket = new WebSocket(`ws://${window.location.host}/ws`);
+      socket.onopen = () => {
+        console.log('WebSocket connected, sending message');
+        socket.send(message);
+        chatInput.value = '';
+      };
+      socket.onmessage = (event) => {
+        console.log('Received SVG path data', event.data);
+        const parser = new DOMParser();
+        const svgFragment = `<svg xmlns="http://www.w3.org/2000/svg">${event.data}</svg>`;
+        const doc = parser.parseFromString(svgFragment, 'image/svg+xml');
+        const path = doc.documentElement.firstChild;
+        
+        const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+        title.textContent = path.getAttribute('id');
+        path.appendChild(title);
+
+        svg.appendChild(path);
+        pathQueue.push({ path, index: svg.childElementCount });
+
+        if (!isAnimating) {
+          processQueue();
+        }
+      };
+      socket.onclose = () => {
+        console.log('WebSocket closed, drawing complete');
+        sendButton.disabled = false;
+        sendButton.textContent = 'Send';
+        socket = null;
+      };
+      socket.onerror = (error) => {
+        console.error('WebSocket error occurred:', error);
+        sendButton.disabled = false;
+        sendButton.textContent = 'Send';
+        socket = null;
+      };
     }
 
-    function handleReset() {
-      isAnimating = false;
-      svgContainer.innerHTML = '';
-      errorElement.textContent = '';
-      animateButton.disabled = false;
-    }
+    sendButton.addEventListener('click', sendMessage);
+    chatInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        sendMessage();
+      }
+    });
 
-    animateButton.addEventListener('click', handleAnimate);
-    resetButton.addEventListener('click', handleReset);
+    resetButton.addEventListener('click', () => {
+      console.log('Resetting drawing canvas');
+      svg.innerHTML = '';
+    });
+
   </script>
 
 </body>
