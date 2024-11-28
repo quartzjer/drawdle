@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>SVG Drawing Animator</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f5f5f5;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 700px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    textarea {
+      width: 100%;
+      height: 150px;
+      font-family: monospace;
+      font-size: 14px;
+      padding: 10px;
+      margin-bottom: 15px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      resize: vertical;
+    }
+    .buttons {
+      display: flex;
+      justify-content: flex-start;
+      margin-bottom: 15px;
+    }
+    button {
+      padding: 10px 15px;
+      margin-right: 10px;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    #animateButton {
+      background-color: #007BFF;
+      color: #fff;
+    }
+    #animateButton:hover {
+      background-color: #0056b3;
+    }
+    #resetButton {
+      background-color: #6c757d;
+      color: #fff;
+    }
+    #resetButton:hover {
+      background-color: #5a6268;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    #error {
+      color: #dc3545;
+      margin-bottom: 15px;
+      padding: 10px;
+      border-radius: 4px;
+      background-color: #ffe6e6;
+      border: 1px solid #dc3545;
+    }
+    #svgContainer {
+      border: 1px solid #eee;
+      border-radius: 4px;
+      padding: 15px;
+      background: #fff;
+      min-height: 200px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    @keyframes drawLine {
+      from {
+        stroke-dashoffset: var(--length, 1000);
+      }
+      to {
+        stroke-dashoffset: 0;
+      }
+    }
+    .svg-container svg {
+      max-width: 100%;
+      height: auto;
+      overflow: visible;
+    }
+    .svg-container svg path,
+    .svg-container svg line,
+    .svg-container svg rect,
+    .svg-container svg circle,
+    .svg-container svg ellipse {
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none; /* Ensure no fill for better visibility of animation */
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>SVG Drawing Animator</h1>
+    <textarea id="svgInput"><svg viewBox="0 0 200 200">
+  <path d="M50,50 L150,50 L150,150 L50,150 Z" fill="none" stroke="black" stroke-width="2"/>
+  <path d="M70,100 L130,100" fill="none" stroke="black" stroke-width="2"/>
+  <path d="M100,70 L100,130" fill="none" stroke="black" stroke-width="2"/>
+</svg></textarea>
+    <div class="buttons">
+      <button id="animateButton">Animate Drawing</button>
+      <button id="resetButton">Reset</button>
+    </div>
+    <div id="error"></div>
+    <div id="svgContainer" class="svg-container"></div>
+  </div>
+
+  <script>
+    const svgInputElement = document.getElementById('svgInput');
+    const animateButton = document.getElementById('animateButton');
+    const resetButton = document.getElementById('resetButton');
+    const errorElement = document.getElementById('error');
+    const svgContainer = document.getElementById('svgContainer');
+
+    let isAnimating = false;
+
+    function processSVG(input) {
+      try {
+        errorElement.textContent = '';
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(input, 'image/svg+xml');
+
+        const parserError = doc.querySelector('parsererror');
+        if (parserError) {
+          throw new Error('Invalid SVG format');
+        }
+
+        const elements = doc.querySelectorAll('path, line, rect, circle, ellipse');
+        if (elements.length === 0) {
+          throw new Error('No drawable elements found in SVG');
+        }
+
+        elements.forEach((elem, index) => {
+          let length = 1000; // default length for shapes without getTotalLength
+          
+          // Create a temporary clone to measure length
+          const clone = elem.cloneNode(true);
+          const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          svg.appendChild(clone);
+          document.body.appendChild(svg);
+          
+          if (clone.getTotalLength) {
+            try {
+              length = clone.getTotalLength();
+            } catch (e) {
+              console.warn('Could not get element length, using default');
+            }
+          }
+          
+          document.body.removeChild(svg);
+
+          elem.setAttribute('style', `
+            stroke-dasharray: ${length};
+            stroke-dashoffset: ${length};
+            animation: drawLine ${1 + index * 0.5}s ease forwards;
+            animation-delay: ${index * 0.2}s;
+          `);
+        });
+
+        return new XMLSerializer().serializeToString(doc.documentElement);
+      } catch (error) {
+        errorElement.textContent = error.message;
+        console.error('Error processing SVG:', error);
+        return null;
+      }
+    }
+
+    function handleAnimate() {
+      if (isAnimating) return;
+      const input = svgInputElement.value.trim();
+      if (!input) {
+        errorElement.textContent = 'Please enter SVG code.';
+        return;
+      }
+      const processed = processSVG(input);
+      if (processed) {
+        svgContainer.innerHTML = processed;
+        isAnimating = true;
+        animateButton.disabled = true;
+      }
+    }
+
+    function handleReset() {
+      isAnimating = false;
+      svgContainer.innerHTML = '';
+      errorElement.textContent = '';
+      animateButton.disabled = false;
+    }
+
+    animateButton.addEventListener('click', handleAnimate);
+    resetButton.addEventListener('click', handleReset);
+  </script>
+
+</body>
+</html>
