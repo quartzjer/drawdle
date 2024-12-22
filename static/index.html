@@ -6,7 +6,7 @@
   <style>
     body {
       font-family: Arial, sans-serif;
-      background-color: #f5f5f5;
+      background: #f5f5f5;
       margin: 0;
       padding: 20px;
     }
@@ -18,10 +18,7 @@
       border-radius: 8px;
       box-shadow: 0 2px 5px rgba(0,0,0,0.1);
     }
-    h1 {
-      text-align: center;
-      margin-bottom: 20px;
-    }
+    h1 { text-align: center; }
     #svgContainer {
       border: 1px solid #eee;
       border-radius: 4px;
@@ -31,27 +28,18 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      position: relative;
     }
     .svg-container svg {
       max-width: 100%;
       height: auto;
       border-radius: 4px;
-      background: white;
     }
-    svg path,
-    svg line,
-    svg rect,
-    svg circle,
-    svg ellipse {
+    svg path, svg line, svg rect, svg circle, svg ellipse {
       stroke-linecap: round;
       stroke-linejoin: round;
       fill: none;
     }
-    .chat-container {
-      display: flex;
-      margin-top: 15px;
-    }
+    .chat-container { display: flex; margin-top: 15px; }
     #chatInput {
       flex: 1;
       font-size: 14px;
@@ -59,7 +47,7 @@
       border: 1px solid #ccc;
       border-radius: 4px;
     }
-    #sendButton, #resetButton {
+    .btn {
       padding: 10px 15px;
       margin-left: 10px;
       border: none;
@@ -68,176 +56,124 @@
       cursor: pointer;
       color: #fff;
     }
-    #sendButton {
-      background-color: #007BFF;
-    }
-    #sendButton:hover {
-      background-color: #0056b3;
-    }
-    #resetButton {
-      background-color: #6c757d;
-    }
-    #resetButton:hover {
-      background-color: #5a6268;
-    }
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
+    #sendButton { background-color: #007BFF; }
+    #sendButton:hover { background-color: #0056b3; }
+    #resetButton { background-color: #6c757d; }
+    #resetButton:hover { background-color: #5a6268; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #tooltip {
+      position: fixed;
+      background: #333;
+      color: #fff;
+      padding: 4px 8px;
+      border-radius: 4px;
+      pointer-events: none;
+      display: none;
     }
   </style>
 </head>
 <body>
-
-<!-- Include Vivus via CDN -->
 <script src="https://cdn.jsdelivr.net/npm/vivus@0.4.6/dist/vivus.min.js"></script>
 
 <div class="container">
   <h1>drawdle</h1>
   <div id="svgContainer" class="svg-container">
-    <!-- Our main SVG to hold all paths -->
     <svg id="mainSvg" width="600" height="400" viewBox="0 0 600 400"
-         style="border:1px solid #ccc; width:600px; height:400px;">
-      <!-- Existing lines or newly added lines will stay here -->
-    </svg>
+         style="border:1px solid #ccc; width:600px; height:400px;"></svg>
   </div>
-
   <div class="chat-container">
     <input type="text" id="chatInput" placeholder="Describe something to draw..." autofocus />
-    <button id="sendButton">Send</button>
-    <button id="resetButton">Reset</button>
+    <button id="sendButton" class="btn">Send</button>
+    <button id="resetButton" class="btn">Reset</button>
   </div>
 </div>
 
+<div id="tooltip"></div>
+
 <script>
-  const chatInput = document.getElementById('chatInput');
-  const sendButton = document.getElementById('sendButton');
-  const resetButton = document.getElementById('resetButton');
-  const mainSvg = document.getElementById('mainSvg');
-  let socket = null;
-  let isAnimating = false;
-  let pathQueue = [];
-  const speedFactor = 8.0; // bigger=faster
+const els = {
+  input: document.getElementById('chatInput'),
+  send: document.getElementById('sendButton'),
+  reset: document.getElementById('resetButton'),
+  svg: document.getElementById('mainSvg'),
+  tooltip: document.getElementById('tooltip')
+};
 
-  // Process next path in queue
-  function processQueue() {
-    if (isAnimating) return;
-    if (!pathQueue.length) return;
-    isAnimating = true;
+let socket = null;
+let isAnimating = false;
+let pathQueue = [];
+const SPEED_FACTOR = 8.0;
 
-    // Mark all existing lines as data-ignore="true" so they won't re-animate
-    Array.from(mainSvg.children).forEach(el => {
-      el.setAttribute('data-ignore', 'true');
-    });
+function processQueue() {
+  if (isAnimating || !pathQueue.length) return;
+  isAnimating = true;
 
-    // Get next path; do NOT set data-ignore on it, so Vivus will animate it
-    const pathToAnimate = pathQueue.shift();
-    mainSvg.appendChild(pathToAnimate);
+  Array.from(els.svg.children).forEach(el => el.setAttribute('data-ignore', 'true'));
+  
+  const path = pathQueue.shift();
+  els.svg.appendChild(path);
+  path.setAttribute('data-duration', path.getTotalLength() / SPEED_FACTOR);
 
-    // Assign data-duration by path length to match uniform speed
-    const length = pathToAnimate.getTotalLength();
-    pathToAnimate.setAttribute('data-duration', length / speedFactor);
+  new Vivus('mainSvg', {
+    type: 'scenario',
+    start: 'manual',
+    forceRender: false
+  }, () => {
+    isAnimating = false;
+    if (pathQueue.length) processQueue();
+  }).play();
+}
 
-    // We create a Vivus instance on the entire SVG but it will skip lines with data-ignore
-    new Vivus(
-      'mainSvg', 
-      {
-        type: 'scenario',     // each path drawn in order
-        start: 'manual',      // we control when animation starts
-        forceRender: false    // try turning this on/off if IE needs help
-      }, 
-      () => {
-        // After animation completes, the path is fully drawn
-        isAnimating = false;
+function handleWebSocket(message) {
+  if (!message || socket) return;
+  els.send.disabled = true;
+  els.send.textContent = 'Sending...';
 
-        // If more lines are queued, animate next
-        if (pathQueue.length) {
-          processQueue();
-        }
-      }
-    ).play();
+  socket = new WebSocket(`ws://${window.location.host}/ws`);
+  
+  socket.onopen = () => {
+    socket.send(message);
+    els.input.value = '';
+  };
+
+  socket.onmessage = ({data}) => {
+    const svgWrap = new DOMParser().parseFromString(
+      `<svg xmlns="http://www.w3.org/2000/svg">${data}</svg>`,
+      'image/svg+xml'
+    );
+    const path = svgWrap.documentElement.firstChild;
+    path.setAttribute('data-label', path.getAttribute('id'));
+    pathQueue.push(path);
+    if (!isAnimating) processQueue();
+  };
+
+  const resetSocket = () => {
+    els.send.disabled = false;
+    els.send.textContent = 'Send';
+    socket = null;
+  };
+
+  socket.onclose = resetSocket;
+  socket.onerror = resetSocket;
+}
+
+els.send.addEventListener('click', () => handleWebSocket(els.input.value.trim()));
+els.input.addEventListener('keypress', e => e.key === 'Enter' && handleWebSocket(els.input.value.trim()));
+els.reset.addEventListener('click', () => els.svg.innerHTML = '');
+
+els.svg.addEventListener('mouseover', e => {
+  if (e.target?.hasAttribute('data-label')) {
+    els.tooltip.textContent = e.target.getAttribute('data-label');
+    els.tooltip.style.display = 'block';
   }
+});
 
-  function sendMessage() {
-    const message = chatInput.value.trim();
-    if (!message || socket) return;
-    sendButton.disabled = true;
-    sendButton.textContent = 'Sending...';
+els.svg.addEventListener('mousemove', e => {
+  els.tooltip.style.left = e.pageX + 'px';
+  els.tooltip.style.top = (e.pageY + 10) + 'px';
+});
 
-    // Open WebSocket (adjust path to your server if needed)
-    socket = new WebSocket(`ws://${window.location.host}/ws`);
-    socket.onopen = () => {
-      socket.send(message);
-      chatInput.value = '';
-    };
-
-    // When we receive a new path, parse it into a DOM element
-    socket.onmessage = (event) => {
-      const parser = new DOMParser();
-      const svgWrap = parser.parseFromString(
-        `<svg xmlns="http://www.w3.org/2000/svg">${event.data}</svg>`,
-        'image/svg+xml'
-      );
-      // Grab the first node inside that <svg> (usually <path>)
-      const newPath = svgWrap.documentElement.firstChild;
-
-      // Store ID as <title> for clarity
-      const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
-      title.textContent = newPath.getAttribute('id');
-      newPath.setAttribute('data-label', newPath.getAttribute('id'));
-
-      // Add it to queue
-      pathQueue.push(newPath);
-      // Attempt to process the queue if not already animating
-      if (!isAnimating) processQueue();
-    };
-
-    socket.onclose = () => {
-      sendButton.disabled = false;
-      sendButton.textContent = 'Send';
-      socket = null;
-    };
-    socket.onerror = () => {
-      sendButton.disabled = false;
-      sendButton.textContent = 'Send';
-      socket = null;
-    };
-  }
-
-  sendButton.addEventListener('click', sendMessage);
-  chatInput.addEventListener('keypress', e => {
-    if (e.key === 'Enter') sendMessage();
-  });
-
-  // Clear the main SVG
-  resetButton.addEventListener('click', () => {
-    mainSvg.innerHTML = '';
-  });
-
-  // Create a custom tooltip div
-  const tooltip = document.createElement('div');
-  tooltip.style.position = 'fixed';
-  tooltip.style.background = '#333';
-  tooltip.style.color = '#fff';
-  tooltip.style.padding = '4px 8px';
-  tooltip.style.borderRadius = '4px';
-  tooltip.style.pointerEvents = 'none';
-  tooltip.style.display = 'none';
-  document.body.appendChild(tooltip);
-
-  mainSvg.addEventListener('mouseover', (e) => {
-    if (e.target && e.target.hasAttribute('data-label')) {
-      tooltip.innerText = e.target.getAttribute('data-label');
-      tooltip.style.display = 'block';
-    }
-  });
-  mainSvg.addEventListener('mousemove', (e) => {
-    tooltip.style.left = e.pageX + 'px';
-    tooltip.style.top = (e.pageY + 10) + 'px';
-  });
-  mainSvg.addEventListener('mouseout', (e) => {
-    tooltip.style.display = 'none';
-  });
+els.svg.addEventListener('mouseout', () => els.tooltip.style.display = 'none');
 </script>
-
 </body>
 </html>
