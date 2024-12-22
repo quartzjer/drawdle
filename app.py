@@ -30,7 +30,9 @@ async def parse_and_send(websocket, text_stream):
     accumulated_text = ""
     path_count = 0
     async for chunk in text_stream:
-        accumulated_text += chunk
+        # Handle both Gemini and Claude responses
+        chunk_text = chunk.text if hasattr(chunk, 'text') else chunk
+        accumulated_text += chunk_text
         while "<path" in accumulated_text and "/>" in accumulated_text:
             start_idx = accumulated_text.find("<path")
             end_idx = accumulated_text.find("/>", start_idx) + 2
@@ -80,6 +82,7 @@ async def websocket_endpoint(
     except WebSocketDisconnect:
         print("Client disconnected unexpectedly")
     except Exception as e:
+        print(f"Error occurred: {str(e)}")
         await websocket.send_json({"error": str(e)})
         await websocket.close()
     finally:
