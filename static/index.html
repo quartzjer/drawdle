@@ -183,7 +183,7 @@
       // Store ID as <title> for clarity
       const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
       title.textContent = newPath.getAttribute('id');
-      newPath.appendChild(title);
+      newPath.setAttribute('data-label', newPath.getAttribute('id'));
 
       // Add it to queue
       pathQueue.push(newPath);
@@ -211,6 +211,31 @@
   // Clear the main SVG
   resetButton.addEventListener('click', () => {
     mainSvg.innerHTML = '';
+  });
+
+  // Create a custom tooltip div
+  const tooltip = document.createElement('div');
+  tooltip.style.position = 'fixed';
+  tooltip.style.background = '#333';
+  tooltip.style.color = '#fff';
+  tooltip.style.padding = '4px 8px';
+  tooltip.style.borderRadius = '4px';
+  tooltip.style.pointerEvents = 'none';
+  tooltip.style.display = 'none';
+  document.body.appendChild(tooltip);
+
+  mainSvg.addEventListener('mouseover', (e) => {
+    if (e.target && e.target.hasAttribute('data-label')) {
+      tooltip.innerText = e.target.getAttribute('data-label');
+      tooltip.style.display = 'block';
+    }
+  });
+  mainSvg.addEventListener('mousemove', (e) => {
+    tooltip.style.left = e.pageX + 'px';
+    tooltip.style.top = (e.pageY + 10) + 'px';
+  });
+  mainSvg.addEventListener('mouseout', (e) => {
+    tooltip.style.display = 'none';
   });
 </script>
 
