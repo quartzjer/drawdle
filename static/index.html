@@ -81,7 +81,14 @@
     <svg id="mainSvg" width="600" height="400" viewBox="0 0 600 400"
          style="border:1px solid #ccc; width:600px; height:400px;"></svg>
   </div>
+  <div id="errorMessage" style="color:red;text-align:center;display:none;"></div>
   <div class="chat-container">
+    <div style="display:flex;align-items:center;margin-right:10px;">
+      <select id="modelSelect" name="model" style="font-size:14px;padding:8px;border:1px solid #ccc;border-radius:4px;">
+        <option value="claude" selected>Claude</option>
+        <option value="gemini">Gemini</option>
+      </select>
+    </div>
     <input type="text" id="chatInput" placeholder="Describe something to draw..." autofocus />
     <button id="sendButton" class="btn">Send</button>
     <button id="resetButton" class="btn">Reset</button>
@@ -96,7 +103,9 @@ const els = {
   send: document.getElementById('sendButton'),
   reset: document.getElementById('resetButton'),
   svg: document.getElementById('mainSvg'),
-  tooltip: document.getElementById('tooltip')
+  tooltip: document.getElementById('tooltip'),
+  errorMessage: document.getElementById('errorMessage'),
+  modelSelect: document.getElementById('modelSelect')
 };
 
 let socket = null;
@@ -125,11 +134,14 @@ function processQueue() {
 }
 
 function handleWebSocket(message) {
+  els.errorMessage.style.display = 'none';
+  els.errorMessage.textContent = '';
   if (!message || socket) return;
   els.send.disabled = true;
   els.send.textContent = 'Sending...';
 
-  socket = new WebSocket(`ws://${window.location.host}/ws`);
+  const selectedModel = els.modelSelect.value;
+  socket = new WebSocket(`ws://${window.location.host}/ws?model=${selectedModel}`);
   
   socket.onopen = () => {
     socket.send(message);
@@ -137,6 +149,14 @@ function handleWebSocket(message) {
   };
 
   socket.onmessage = ({data}) => {
+    try {
+      const parsed = JSON.parse(data);
+      if (parsed.error) {
+        els.errorMessage.textContent = parsed.error;
+        els.errorMessage.style.display = 'block';
+        return;
+      }
+    } catch {}
     const svgWrap = new DOMParser().parseFromString(
       `<svg xmlns="http://www.w3.org/2000/svg">${data}</svg>`,
       'image/svg+xml'
