@@ -1,13 +1,17 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from anthropic import AsyncAnthropic
+import os
+from google import genai
+from google.genai import types
 
 from dotenv import load_dotenv
 load_dotenv()
 
-client = AsyncAnthropic()
+client_anthropic = AsyncAnthropic()
+client_gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 app = FastAPI()
 
@@ -22,8 +26,26 @@ async def get():
         html_content = file.read()
     return HTMLResponse(content=html_content, status_code=200)
 
+async def parse_and_send(websocket, text_stream):
+    accumulated_text = ""
+    path_count = 0
+    async for chunk in text_stream:
+        accumulated_text += chunk
+        while "<path" in accumulated_text and "/>" in accumulated_text:
+            start_idx = accumulated_text.find("<path")
+            end_idx = accumulated_text.find("/>", start_idx) + 2
+            path_element = accumulated_text[start_idx:end_idx]
+            accumulated_text = accumulated_text[end_idx:]
+            await websocket.send_text(path_element)
+            print(f"Sent path: {path_element}")
+            path_count += 1
+    return path_count
+
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    model: str = Query(default="claude")
+):
     print("New WebSocket connection request received")
     await websocket.accept()
     print("WebSocket connection accepted")
@@ -32,39 +54,34 @@ async def websocket_endpoint(websocket: WebSocket):
             user_input = await websocket.receive_text()
             print(f"Received user input: {user_input}")
             
-            async with client.messages.stream(
-                max_tokens=1024,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_input}],
-                model="claude-3-5-sonnet-20241022",
-            ) as stream:
-                accumulated_text = ""
-                path_count = 0
-                async for chunk in stream.text_stream:
-                    accumulated_text += chunk
-                    # Extract <path /> elements
-                    while "<path" in accumulated_text and "/>" in accumulated_text:
-                        start_idx = accumulated_text.find("<path")
-                        end_idx = accumulated_text.find("/>", start_idx) + 2
-                        path_element = accumulated_text[start_idx:end_idx]
-                        accumulated_text = accumulated_text[end_idx:]
-                        # Send each <path /> element back to the client
-                        await websocket.send_text(path_element)
-                        path_count += 1
-                        print(f"Sent path element {path_count} to client: {path_element}")
-                
-                print(f"Stream completed. Total paths sent: {path_count}")
-                await websocket.close()
-                break
+            if model.lower() == "gemini":
+                stream = client_gemini.aio.models.generate_content_stream(
+                    model="gemini-2.0-flash-exp",
+                    contents=[types.Part.from_text(user_input)],
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        max_output_tokens=1024
+                    )
+                )
+                path_count = await parse_and_send(websocket, stream)
+            else:
+                async with client_anthropic.messages.stream(
+                    max_tokens=1024,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_input}],
+                    model="claude-3-5-sonnet-20241022",
+                ) as stream:
+                    path_count = await parse_and_send(websocket, stream.text_stream)
+                    
+            print(f"Stream completed. Total paths sent: {path_count}")
+            await websocket.close()
+            break
                 
     except WebSocketDisconnect:
         print("Client disconnected unexpectedly")
     except Exception as e:
-        print(f"Error occurred: {e}")
-        try:
-            await websocket.close()
-        except:
-            pass
+        await websocket.send_json({"error": str(e)})
+        await websocket.close()
     finally:
         print("WebSocket connection closed")
 

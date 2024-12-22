@@ -3,3 +3,4 @@ uvicorn
 anthropic
 python-dotenv
 websockets
+google-genai
