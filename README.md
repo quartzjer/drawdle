@@ -10,7 +10,7 @@ An interactive web application that generates and animates SVG drawings using AI
 - Clean and intuitive user interface
 - Support for complex drawing elements and paths
 
-![screenshot](screenshot.png)
+![animated screenshot](animation.gif)
 
 ## Setup
 
