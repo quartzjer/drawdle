@@ -113,6 +113,10 @@ let socket = null;
 let isAnimating = false;
 let pathQueue = [];
 const SPEED_FACTOR = 8.0;
+// Add input history tracking
+let inputHistory = [];
+let historyPosition = -1;
+let tempInput = '';
 
 function processQueue() {
   if (isAnimating || !pathQueue.length) return;
@@ -138,6 +142,13 @@ function handleWebSocket(message) {
   els.errorMessage.style.display = 'none';
   els.errorMessage.textContent = '';
   if (!message || socket) return;
+  
+  // Add the message to history if it's not already the most recent entry
+  if (inputHistory.length === 0 || inputHistory[inputHistory.length - 1] !== message) {
+    inputHistory.push(message);
+  }
+  historyPosition = -1; // Reset position after sending
+  
   els.send.disabled = true;
   els.send.textContent = 'Sending...';
 
@@ -178,8 +189,52 @@ function handleWebSocket(message) {
   socket.onerror = resetSocket;
 }
 
-els.send.addEventListener('click', () => handleWebSocket(els.input.value.trim()));
-els.input.addEventListener('keypress', e => e.key === 'Enter' && handleWebSocket(els.input.value.trim()));
+els.send.addEventListener('click', () => {
+  handleWebSocket(els.input.value.trim());
+  els.input.focus();
+});
+
+els.input.addEventListener('keypress', e => {
+  if (e.key === 'Enter') {
+    handleWebSocket(els.input.value.trim());
+    els.input.focus();
+  }
+});
+
+// Add keyboard navigation for input history
+els.input.addEventListener('keydown', e => {
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault(); // Prevent cursor from moving
+    
+    if (inputHistory.length === 0) return;
+    
+    // Save current input if we're just starting to navigate
+    if (historyPosition === -1) {
+      tempInput = els.input.value;
+    }
+    
+    if (e.key === 'ArrowUp') {
+      // Navigate backward in history
+      historyPosition = Math.min(historyPosition + 1, inputHistory.length - 1);
+      els.input.value = inputHistory[inputHistory.length - 1 - historyPosition];
+    } else if (e.key === 'ArrowDown') {
+      // Navigate forward in history
+      historyPosition = Math.max(historyPosition - 1, -1);
+      
+      if (historyPosition === -1) {
+        els.input.value = tempInput; // Return to the original input
+      } else {
+        els.input.value = inputHistory[inputHistory.length - 1 - historyPosition];
+      }
+    }
+    
+    // Move cursor to end of input
+    setTimeout(() => {
+      els.input.selectionStart = els.input.selectionEnd = els.input.value.length;
+    }, 0);
+  }
+});
+
 els.reset.addEventListener('click', () => els.svg.innerHTML = '');
 
 els.svg.addEventListener('mouseover', e => {
