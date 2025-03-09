@@ -57,9 +57,9 @@ async def websocket_endpoint(
             print(f"Received user input: {user_input}")
             
             if model.lower() == "gemini":
-                stream = client_gemini.aio.models.generate_content_stream(
-                    model="gemini-2.0-flash-exp",
-                    contents=[types.Part.from_text(user_input)],
+                stream = await client_gemini.aio.models.generate_content_stream(
+                    model="gemini-2.0-pro-exp-02-05",
+                    contents=[user_input],
                     config=types.GenerateContentConfig(
                         system_instruction=system_prompt,
                         max_output_tokens=1024
@@ -71,7 +71,7 @@ async def websocket_endpoint(
                     max_tokens=1024,
                     system=system_prompt,
                     messages=[{"role": "user", "content": user_input}],
-                    model="claude-3-5-sonnet-20241022",
+                    model="claude-3-7-sonnet-20250219",
                 ) as stream:
                     path_count = await parse_and_send(websocket, stream.text_stream)
                     
