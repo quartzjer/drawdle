@@ -6,12 +6,14 @@ from anthropic import AsyncAnthropic
 import os
 from google import genai
 from google.genai import types
+from openai import AsyncOpenAI
 
 from dotenv import load_dotenv
 load_dotenv()
 
 client_anthropic = AsyncAnthropic()
 client_gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+client_openai = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))  # added OpenAI client initialization
 
 app = FastAPI()
 
@@ -30,9 +32,11 @@ async def parse_and_send(websocket, text_stream):
     accumulated_text = ""
     path_count = 0
     async for chunk in text_stream:
-        # Handle both Gemini and Claude responses
-        chunk_text = chunk.text if hasattr(chunk, 'text') else chunk
-        accumulated_text += chunk_text
+        # Extract text from different model response formats
+        chunk_text = (chunk.choices[0].delta.content if hasattr(chunk, 'choices')
+                 else chunk.text if hasattr(chunk, 'text') 
+                 else chunk)
+        accumulated_text += chunk_text or ""
         while "<path" in accumulated_text and "/>" in accumulated_text:
             start_idx = accumulated_text.find("<path")
             end_idx = accumulated_text.find("/>", start_idx) + 2
@@ -66,6 +70,33 @@ async def websocket_endpoint(
                     )
                 )
                 path_count = await parse_and_send(websocket, stream)
+            elif model.lower() == "openai":
+                response = await client_openai.chat.completions.create(
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": system_prompt
+                                }
+                            ]
+                        },
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": user_input
+                                }
+                            ]
+                        }
+                    ],
+                    model="o3-mini",
+                    reasoning_effort="low",
+                    stream=True
+                )
+                path_count = await parse_and_send(websocket, response)
             else:
                 async with client_anthropic.messages.stream(
                     max_tokens=1024,
