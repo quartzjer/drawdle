@@ -9,6 +9,7 @@ An interactive web application that generates and animates SVG drawings using AI
 - WebSocket-based communication for live updates
 - Clean and intuitive user interface
 - Support for complex drawing elements and paths
+- Choose Claude, Gemini, or OpenAI
 
 ![animated screenshot](animation.gif)
 
@@ -27,7 +28,10 @@ An interactive web application that generates and animates SVG drawings using AI
 
 4. Set up your environment variables:
    - Create a `.env` file
-   - Add your Anthropic API key: `ANTHROPIC_API_KEY=your_key_here`
+   - Add your API keys:
+     - `ANTHROPIC_API_KEY=...`
+     - `GEMINI_API_KEY=...`
+     - `OPENAI_API_KEY=...`
 
 5. Run the application:
    `python app.py`
@@ -50,8 +54,11 @@ An interactive web application that generates and animates SVG drawings using AI
 ## TODO
 
 - Support drawing input from the user
-- Send back a screenshot to Claude as input
-- Allow Claude to make edits to existing paths
+- Send back a screenshot as input
+- Allow AI to make edits to existing paths
+- Send the full history with new requests
+- Support an "arena" mode
+- Make a pure web based version using openrouter
 
 ## License
 
