@@ -5,6 +5,7 @@ This repository contains a small FastAPI application for generating and animatin
 ```
 .
 ├── app.py            # FastAPI backend with WebSocket endpoints
+├── svg_utils.py      # Utility for parsing streaming SVG paths
 ├── static/           # Frontend assets
 │   └── index.html    # Client side HTML/JS/CSS
 ├── prompt.txt        # System prompt sent to the AI models

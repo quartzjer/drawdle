@@ -8,6 +8,7 @@ from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
 import logging
+from svg_utils import parse_and_send
 
 from dotenv import load_dotenv
 
@@ -35,25 +36,6 @@ async def get():
     with open("static/index.html", "r", encoding="utf-8") as file:
         html_content = file.read()
     return HTMLResponse(content=html_content, status_code=200)
-
-async def parse_and_send(websocket, text_stream):
-    accumulated_text = ""
-    path_count = 0
-    async for chunk in text_stream:
-        # Extract text from different model response formats
-        chunk_text = (chunk.choices[0].delta.content if hasattr(chunk, 'choices')
-                 else chunk.text if hasattr(chunk, 'text') 
-                 else chunk)
-        accumulated_text += chunk_text or ""
-        while "<path" in accumulated_text and "/>" in accumulated_text:
-            start_idx = accumulated_text.find("<path")
-            end_idx = accumulated_text.find("/>", start_idx) + 2
-            path_element = accumulated_text[start_idx:end_idx]
-            accumulated_text = accumulated_text[end_idx:]
-            await websocket.send_text(path_element)
-            logger.info(f"Sent path: {path_element}")
-            path_count += 1
-    return path_count
 
 
 async def send_error(websocket: WebSocket, message: str) -> None:
