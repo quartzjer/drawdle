@@ -2,14 +2,10 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
-from anthropic import AsyncAnthropic
-import os
-from google import genai
-from google.genai import types
-from openai import AsyncOpenAI
 import logging
-from svg_utils import parse_and_send
 
+from model_streamer import ModelStreamer
+from svg_utils import parse_and_send
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,14 +16,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-client_anthropic = AsyncAnthropic()
-client_gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-client_openai = AsyncOpenAI(api_key=os.environ.get("OPENAI_API_KEY"))  # added OpenAI client initialization
-
 app = FastAPI()
 
 with open("prompt.txt", "r") as f:
     system_prompt = f.read().strip()
+
+streamer = ModelStreamer(system_prompt)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -54,52 +48,10 @@ async def websocket_endpoint(
         while True:
             user_input = await websocket.receive_text()
             logger.info(f"Received user input: {user_input}")
-            
-            if model.lower() == "gemini":
-                stream = await client_gemini.aio.models.generate_content_stream(
-                    model="gemini-2.0-pro-exp-02-05",
-                    contents=[user_input],
-                    config=types.GenerateContentConfig(
-                        system_instruction=system_prompt,
-                        max_output_tokens=1024
-                    )
-                )
-                path_count = await parse_and_send(websocket, stream)
-            elif model.lower() == "openai":
-                response = await client_openai.chat.completions.create(
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": system_prompt
-                                }
-                            ]
-                        },
-                        {
-                            "role": "user",
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": user_input
-                                }
-                            ]
-                        }
-                    ],
-                    model="o3-mini",
-                    reasoning_effort="low",
-                    stream=True
-                )
-                path_count = await parse_and_send(websocket, response)
-            else:
-                async with client_anthropic.messages.stream(
-                    max_tokens=1024,
-                    system=system_prompt,
-                    messages=[{"role": "user", "content": user_input}],
-                    model="claude-3-7-sonnet-20250219",
-                ) as stream:
-                    path_count = await parse_and_send(websocket, stream.text_stream)
+
+            stream_fn = streamer.get_streamer(model)
+            stream = stream_fn(user_input)
+            path_count = await parse_and_send(websocket, stream)
                     
             logger.info(f"Stream completed. Total paths sent: {path_count}")
             await websocket.close()
