@@ -7,9 +7,17 @@ import os
 from google import genai
 from google.genai import types
 from openai import AsyncOpenAI
+import logging
 
 from dotenv import load_dotenv
+
 load_dotenv()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 client_anthropic = AsyncAnthropic()
 client_gemini = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
@@ -43,22 +51,27 @@ async def parse_and_send(websocket, text_stream):
             path_element = accumulated_text[start_idx:end_idx]
             accumulated_text = accumulated_text[end_idx:]
             await websocket.send_text(path_element)
-            print(f"Sent path: {path_element}")
+            logger.info(f"Sent path: {path_element}")
             path_count += 1
     return path_count
+
+
+async def send_error(websocket: WebSocket, message: str) -> None:
+    """Send a JSON formatted error message to the WebSocket client."""
+    await websocket.send_json({"error": message})
 
 @app.websocket("/ws")
 async def websocket_endpoint(
     websocket: WebSocket,
     model: str = Query(default="claude")
 ):
-    print("New WebSocket connection request received")
+    logger.info("New WebSocket connection request received")
     await websocket.accept()
-    print("WebSocket connection accepted")
+    logger.info("WebSocket connection accepted")
     try:
         while True:
             user_input = await websocket.receive_text()
-            print(f"Received user input: {user_input}")
+            logger.info(f"Received user input: {user_input}")
             
             if model.lower() == "gemini":
                 stream = await client_gemini.aio.models.generate_content_stream(
@@ -106,18 +119,18 @@ async def websocket_endpoint(
                 ) as stream:
                     path_count = await parse_and_send(websocket, stream.text_stream)
                     
-            print(f"Stream completed. Total paths sent: {path_count}")
+            logger.info(f"Stream completed. Total paths sent: {path_count}")
             await websocket.close()
             break
                 
     except WebSocketDisconnect:
-        print("Client disconnected unexpectedly")
+        logger.info("Client disconnected unexpectedly")
     except Exception as e:
-        print(f"Error occurred: {str(e)}")
-        await websocket.send_json({"error": str(e)})
+        logger.error(f"Error occurred: {str(e)}")
+        await send_error(websocket, str(e))
         await websocket.close()
     finally:
-        print("WebSocket connection closed")
+        logger.info("WebSocket connection closed")
 
 @app.get('/favicon.ico')
 def serve_favicon():
