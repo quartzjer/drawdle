@@ -46,11 +46,17 @@ async def websocket_endpoint(
     logger.info("WebSocket connection accepted")
     try:
         while True:
-            user_input = await websocket.receive_text()
+            data = await websocket.receive_json()
+            user_input = data.get("prompt", "") if isinstance(data, dict) else ""
+            paths = data.get("paths", []) if isinstance(data, dict) else []
             logger.info(f"Received user input: {user_input}")
+            if not user_input:
+                await send_error(websocket, "No prompt provided")
+                await websocket.close()
+                break
 
             stream_fn = streamer.get_streamer(model)
-            stream = stream_fn(user_input)
+            stream = stream_fn(user_input, paths)
             path_count = await parse_and_send(websocket, stream)
                     
             logger.info(f"Stream completed. Total paths sent: {path_count}")

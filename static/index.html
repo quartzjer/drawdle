@@ -156,7 +156,8 @@ function handleWebSocket(message) {
   socket = new WebSocket(`ws://${window.location.host}/ws?model=${selectedModel}`);
   
   socket.onopen = () => {
-    socket.send(message);
+    const paths = Array.from(els.svg.querySelectorAll('path')).map(p => p.outerHTML);
+    socket.send(JSON.stringify({ prompt: message, paths }));
     els.input.value = '';
   };
 
